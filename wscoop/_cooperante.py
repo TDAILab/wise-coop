@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from tqdm import tqdm
-tqdm.pandas()
 from sklearn.metrics import  accuracy_score, f1_score, precision_score, recall_score
 import copy
 
@@ -63,7 +61,7 @@ class Cooperante(object):
 
         return df
 
-    def plot_eval(self, label_array, metrics, memo = "memo"):
+    def plot_eval(self, label_array, metrics, show_oracle=False):
         assert type(metrics) == list
         self.df["ans"] = label_array
         self.emerging_label = sorted(list(set(label_array))) #全てのラベルが必ずしも正解ラベルにあるわけではない
@@ -77,10 +75,10 @@ class Cooperante(object):
             plt.subplot(num_plot,1,i+1)
             for j,y in enumerate(self.emerging_label): #各クラスを陽性ラベルとしたときのラインをかく
                 plt.plot(np.linspace(0,100,21), self.scores[x][:,j], label = "label" + str(y)) 
-                plt.plot(np.linspace(0,100,21), self._calc_score_oracle(self.df, x, y)[:,j], label = "oracle_" + "label" + str(y)) 
+                if show_oracle:
+                    plt.plot(np.linspace(0,100,21), self._calc_score_oracle(self.df, x, y)[:,j], label = "oracle_" + "label" + str(y)) 
                 self.check_rate_dict[f"{x}_label{y}"] = self.check_rates(self.scores[x][:,j])
             plt.legend()
-            plt.title(f"{x} , " + memo)
             plt.xlabel('Human Check Percent')
             plt.xlim(0,100)
             plt.grid()
@@ -103,7 +101,7 @@ class Cooperante(object):
     def _calc_3scores(self, sorted_df, metrics)->dict:
         scores_dict = {}
         for x_score in metrics:
-            scores_dict[x_score] = np.array([self._calc_score(n, sorted_df, score_type=x_score) for n in tqdm(np.linspace(0,sorted_df.shape[0], 21))]) #shape は(データ数, num_class)
+            scores_dict[x_score] = np.array([self._calc_score(n, sorted_df, score_type=x_score) for n in np.linspace(0,sorted_df.shape[0], 21)]) #shape は(データ数, num_class)
         return scores_dict
 
     def _calc_score_oracle(self, df, score_type = "f1_score", label = 1)->np.array:
