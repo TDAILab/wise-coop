@@ -20,7 +20,7 @@ class Cooperante(object):
         # d = dict(enumerate(unforbidden)) #{0:0, 1:1, 2:3}　みたいな辞書
         # d1 = {v:k for k,v in d.items()} #{0:0, 1:1, 3:2} にkeyとvalueの順序を入れ替えた
         # self.adjuster = d1
-        self.check_rate_dict = {"check rate" : [90, 95, 99]}
+        self.check_rate_df = pd.DataFrame([90, 95, 99], columns = ["score over X %"])
 
         """
         penalty matrix
@@ -40,7 +40,7 @@ class Cooperante(object):
 
         """
 
-    def fit(self, probability_array)->pd.DataFrame:
+    def fit(self, probability_array)->np.array:
         assert probability_array.shape[1] == self.penalty_matrix.shape[1]
 
         #caluculate mu_penalty for each label
@@ -53,16 +53,17 @@ class Cooperante(object):
         mu_min_index = np.nanargmin(mu_for_each_label, axis=1) #これが選ぶラベル。ただしforbiddenで指定された列を抜いていることに注意
         mu_min_array = np.append(mu_min_array, mu_min)
         mu_min_index_array = np.append(mu_min_index_array, mu_min_index)        
-        self.prediction = mu_min_index_array.astype(int) #予測ラベルがfloatになってるのでintに戻す
-        self.mu_min = mu_min_array
-        df = pd.DataFrame(self.prediction, columns=["pred"])  
-        df["mu_min"] = self.mu_min
+        prediction = mu_min_index_array.astype(int) #予測ラベルがfloatになってるのでintに戻す
+        df = pd.DataFrame(prediction, columns=["pred"])  
+        df["mu_min"] = mu_min_array
         self.df = df
 
-        return df
+        return mu_min_array, prediction
 
-    def plot_eval(self, label_array, metrics, show_oracle=False):
+    def plot_eval(self, label_array, metrics, show_oracle=False, samplong_rate = 5):
         assert type(metrics) == list
+        self._sampling_rate = samplong_rate
+        self.num_sample = int(100 / samplong_rate + 1)
         self.df["ans"] = label_array
         self.emerging_label = sorted(list(set(label_array))) #全てのラベルが必ずしも正解ラベルにあるわけではない
         sorted_df = self.df.sort_values("mu_min", ascending=False).reset_index()
@@ -74,10 +75,17 @@ class Cooperante(object):
         for i,x in enumerate(metrics):
             plt.subplot(num_plot,1,i+1)
             for j,y in enumerate(self.emerging_label): #各クラスを陽性ラベルとしたときのラインをかく
-                plt.plot(np.linspace(0,100,21), self.scores[x][:,j], label = "label" + str(y)) 
-                if show_oracle:
-                    plt.plot(np.linspace(0,100,21), self._calc_score_oracle(self.df, x, y)[:,j], label = "oracle_" + "label" + str(y)) 
-                self.check_rate_dict[f"{x}_label{y}"] = self.check_rates(self.scores[x][:,j])
+                if x == "accuracy_score":
+                    plt.plot(np.linspace(0,100,self.num_sample), self.scores[x], label = "label" + str(y)) 
+                    if show_oracle:
+                        plt.plot(np.linspace(0,100,self.num_sample), self._calc_score_oracle(self.df, x, y), label = "oracle_" + "label" + str(y)) 
+                    self.check_rate_df[f"{x}(label{y})"] = self.check_rates(self.scores[x])
+                else:
+                    plt.plot(np.linspace(0,100,self.num_sample), self.scores[x][:,j], label = "label" + str(y)) 
+                    if show_oracle:
+                        plt.plot(np.linspace(0,100,self.num_sample), self._calc_score_oracle(self.df, x, y)[:,j], label = "oracle_" + "label" + str(y)) 
+                    self.check_rate_df[f"{x}(label{y})"] = self.check_rates(self.scores[x][:,j])
+                
             plt.legend()
             plt.xlabel('Human Check Percent')
             plt.xlim(0,100)
@@ -101,7 +109,7 @@ class Cooperante(object):
     def _calc_3scores(self, sorted_df, metrics)->dict:
         scores_dict = {}
         for x_score in metrics:
-            scores_dict[x_score] = np.array([self._calc_score(n, sorted_df, score_type=x_score) for n in np.linspace(0,sorted_df.shape[0], 21)]) #shape は(データ数, num_class)
+            scores_dict[x_score] = np.array([self._calc_score(n, sorted_df, score_type=x_score) for n in np.linspace(0,sorted_df.shape[0], self.num_sample)]) #shape は(データ数, num_class)
         return scores_dict
 
     def _calc_score_oracle(self, df, score_type = "f1_score", label = 1)->np.array:
@@ -132,7 +140,7 @@ class Cooperante(object):
 
         oracle_idx = wrong_idx.append(else_idx)
         df_oraclesort = df.loc[oracle_idx, :].reset_index()  #間違ってるものを上に持ってきた
-        oracle_score = [self._calc_score(n, df_oraclesort, score_type) for n in tqdm(np.linspace(0,df_oraclesort.shape[0], 21))]
+        oracle_score = [self._calc_score(n, df_oraclesort, score_type) for n in np.linspace(0,df_oraclesort.shape[0], self.num_sample)]
 
         return np.array(oracle_score) #[[...],[...],...,[...]] #各行のk番目にラベルkの時のスコアが入っている
 
@@ -146,7 +154,7 @@ class Cooperante(object):
         score_list = list(score_array)
         score = score_array[score_array >= threshold][0] #初めて閾値を超えた時のスコア
         check_rate = score_list.index(score)
-        return check_rate *5  #今は５％刻みでやっているため
+        return check_rate * self._sampling_rate
 
     def check_rates(self, score_list):
         thresholds_list = [0.90, 0.95, 0.99]
