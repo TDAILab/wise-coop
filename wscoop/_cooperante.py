@@ -51,7 +51,7 @@ class Cooperante(object):
 
         """
 
-    def fit(self, probability_array)->np.array:
+    def fit(self, probability_array, one_dim = False)->np.array:
         """
         Parameters
         ----------
@@ -72,6 +72,11 @@ class Cooperante(object):
             Class number is predicted for each sample so that the class has the minimum penalty.
 
         """
+        if one_dim:
+            assert min(probability_array) < 0
+            assert max(probability_array) > 1
+            probability_array = np.array([(1 - probability_array, probability_array)])
+            
         assert probability_array.shape[1] == self.penalty_matrix.shape[1]
 
         #caluculate mu_penalty for each label
@@ -91,7 +96,7 @@ class Cooperante(object):
 
         return mu_min_array, prediction
 
-    def plot_eval(self, label_array, metrics=["accuracy_score"], show_oracle=False, samplong_rate = 5):
+    def plot_eval(self, label_array, metrics="accuracy_score", class_ref=1, show_oracle=False, samplong_rate = 5):
         """
         Plot evaluation for the prediction and its transition when human can check the prediction from samples with higher penalty to samples with lower penalty.
         When all samples are checked, which means no cost-cut is expected, the evaluation reach 1.
@@ -115,75 +120,71 @@ class Cooperante(object):
         self._sampling_rate = samplong_rate
         self.n_sampling = int(100 / samplong_rate + 1)
         self.df["ans"] = label_array
+        self.class_ref = class_ref
         self.emerging_label = sorted(list(set(label_array))) #全てのラベルが必ずしも正解ラベルにあるわけではない
         sorted_df = self.df.sort_values("mu_min", ascending=False).reset_index()
-        self.scores = self._calc_scores(sorted_df, metrics)
+        self.scores = self._calc_scores(sorted_df, metrics, label=self.class_ref)
 
-        n_plot = len(metrics)
         x_axis = np.linspace(0,100,self.n_sampling)
-        plt.figure(figsize=(6,5*n_plot))
-        for i,x in enumerate(metrics):
-            plt.subplot(n_plot,1,i+1)
-            for j,y in enumerate(self.emerging_label): #各クラスを陽性ラベルとしたときのラインをかく
-                if x == "accuracy_score":
-                    plt.plot(x_axis, self.scores[x], label = "label" + str(y)) 
-                    if show_oracle:
-                        plt.plot(x_axis, self._calc_score_oracle(self.df, x, y), label = "oracle_" + "label" + str(y)) 
-                    self.check_rate_df[f"{x}(label{y})"] = self.check_rates(self.scores[x])
-                else:
-                    plt.plot(x_axis, self.scores[x][:,j], label = "label" + str(y)) 
-                    if show_oracle:
-                        plt.plot(x_axis, self._calc_score_oracle(self.df, x, y)[:,j], label = "oracle_" + "label" + str(y)) 
-                    self.check_rate_df[f"{x}(label{y})"] = self.check_rates(self.scores[x][:,j])
+        for j,y in enumerate(self.emerging_label): #各クラスを陽性ラベルとしたときのラインをかく
+            if metrics == "accuracy_score":
+                plt.plot(x_axis, self.scores[metrics], label = "label" + str(y)) 
+                if show_oracle:
+                    plt.plot(x_axis, self._calc_score_oracle(self.df, metrics, y), label = "oracle_" + "label" + str(y)) 
+                self.check_rate_df[f"{metrics}(label{y})"] = self.check_rates(self.scores[metrics])
+            else:
+                plt.plot(x_axis, self.scores[metrics][:,j], label = "label" + str(y)) 
+                if show_oracle:
+                    plt.plot(x_axis, self._calc_score_oracle(self.df, metrics, y)[:,j], label = "oracle_" + "label" + str(y)) 
+                self.check_rate_df[f"{metrics}(label{y})"] = self.check_rates(self.scores[metrics][:,j])
                 
-            plt.legend()
-            plt.xlabel('Human Check Percent')
-            plt.xlim(0,100)
-            plt.grid()
+        plt.legend()
+        plt.xlabel('Human Check Percent')
+        plt.xlim(0,100)
+        plt.grid()
 
-    def _calc_score(self, n, df, score_type = "f1_score")->list: #dataframeのn番目までhuman checkしてスコアを返す  
+    def _calc_score(self, n, df, score_type = "f1_score", label=1)->list: #dataframeのn番目までhuman checkしてスコアを返す  
         n = int(n)
         dataframe = df.copy()
         
         dataframe.loc[:n, "pred"] =dataframe.loc[:n, "ans"]
         if score_type == "accuracy_score":
-            score = accuracy_score(dataframe["ans"],dataframe["pred"])
+            score = list(accuracy_score(dataframe["ans"],dataframe["pred"]))
         elif score_type == "f1_score":
-            score = f1_score(dataframe["ans"],dataframe["pred"], average = None, labels=self.emerging_label)
+            score = list(f1_score(dataframe["ans"],dataframe["pred"], average = None, labels=label))
         elif score_type == "precision_score":
-            score = precision_score(dataframe["ans"],dataframe["pred"],  average = None, labels=self.emerging_label)
+            score = list(precision_score(dataframe["ans"],dataframe["pred"],  average = None, labels=label))
         elif score_type == "recall_score":
-            score = recall_score(dataframe["ans"],dataframe["pred"],  average = None, labels=self.emerging_label)
-        score =  score.tolist() #len(score) = len(self.emerging_label), type(score) = np.ndarray 
-        return score 
+            score = list(recall_score(dataframe["ans"],dataframe["pred"],  average = None, labels=label))
+        #len(score) = len(self.emerging_label), type(score) = np.ndarray 
+        return score
             
-    def _calc_scores(self, sorted_df, metrics)->dict:
+    def _calc_scores(self, sorted_df, metrics, label)->dict:
         scores_dict = {}
-        for x_score in metrics:
-            scores_dict[x_score] = np.array([self._calc_score(n, sorted_df, score_type=x_score) for n in np.linspace(0,sorted_df.shape[0], self.n_sampling)]) #shape は(データ数, num_class)
+        scores_dict[metrics] = np.array([self._calc_score(n, sorted_df, metrics, label) for n in np.linspace(0,sorted_df.shape[0], self.n_sampling)])
         return scores_dict
 
-    def _calc_score_oracle(self, df, score_type = "f1_score", label = 1)->np.array:
+    def _calc_score_oracle(self, df, metrics = "f1_score", label = 1)->np.array:
         #正解ラベル、予測ラベルのついたdf
         #sort
         pred_negative = df[df["pred"] == label]
         ans_negative = df[df["ans"] == label]
 
-        if score_type == "precision_score":
+        if metrics == "precision_score":
             wrong_idx = pred_negative[pred_negative["ans"] != pred_negative["pred"]].index
             else_idx = df.drop(index = wrong_idx).index
 
-        elif score_type == "recall_score":
+        elif metrics == "recall_score":
             wrong_idx = ans_negative[ans_negative["ans"] != ans_negative["pred"]].index
             else_idx = df.drop(index = wrong_idx).index
 
-        elif score_type  == "f1_score":
+        elif metrics  == "f1_score":
             wrong_idx_precision = pred_negative[pred_negative["ans"] != pred_negative["pred"]].index
             wrong_idx_recall = ans_negative[ans_negative["ans"] != ans_negative["pred"]].index
             wrong_idx = wrong_idx_precision.append(wrong_idx_recall)
             else_idx = df.drop(index = wrong_idx).index
 
-        elif score_type == "accuracy_score":
+        elif metrics == "accuracy_score":
             wrong_idx_precision = pred_negative[pred_negative["ans"] != pred_negative["pred"]].index
             wrong_idx_recall = ans_negative[ans_negative["ans"] != ans_negative["pred"]].index
             wrong_idx = wrong_idx_precision.append(wrong_idx_recall)
@@ -191,7 +192,7 @@ class Cooperante(object):
 
         oracle_idx = wrong_idx.append(else_idx)
         df_oraclesort = df.loc[oracle_idx, :].reset_index()  #間違ってるものを上に持ってきた
-        oracle_score = [self._calc_score(n, df_oraclesort, score_type) for n in np.linspace(0,df_oraclesort.shape[0], self.n_sampling)]
+        oracle_score = [self._calc_score(n, df_oraclesort, metrics) for n in np.linspace(0,df_oraclesort.shape[0], self.n_sampling)]
         oracle_score = np.array(oracle_score)
 
         return oracle_score #[[...],[...],...,[...]] #各行のk番目にラベルkの時のスコアが入っている
