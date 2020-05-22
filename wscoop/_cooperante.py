@@ -7,19 +7,30 @@ import copy
 
 class Cooperante(object):
     def __init__(self, penalty_matrix, forbidden=[]):
+        """
+        Parameters
+        ----------
+        penalty_matrix : ndarray of shape (n_classes, n_classes)
+            Penalty_matrix[i, j] means that when class i is predicted as class j, the penalty will be added. You can avoid some mis-predicting
+            by setting the penalty high. Penalty_matrix[i, i] should be 0.
+        
+        forbidden : list, default=[]
+            When you want to exclude some class from prediction, the class number should be included here as int. 
+        Notes
+        -----
+        
+        """
+        
         assert penalty_matrix.shape[0] == penalty_matrix.shape[1]
         assert type(forbidden) == list #contain index of forbidden class
         self.penalty_matrix = penalty_matrix
-        self.num_class = self.penalty_matrix.shape[1]
+        self.n_classes = self.penalty_matrix.shape[1]
         self.penalty_matrix = penalty_matrix
         assert type(forbidden) == list
         self.forbidden = forbidden
-        all_class = set(range(0,self.num_class))     
+        all_class = set(range(0,self.n_classes))     
         unforbidden = all_class - set(forbidden)
         self.unforbidden = list(unforbidden) #[0,1,3]みたいな特定の列を除いたもの
-        # d = dict(enumerate(unforbidden)) #{0:0, 1:1, 2:3}　みたいな辞書
-        # d1 = {v:k for k,v in d.items()} #{0:0, 1:1, 3:2} にkeyとvalueの順序を入れ替えた
-        # self.adjuster = d1
         self.check_rate_df = pd.DataFrame([90, 95, 99], columns = ["score over X %"])
 
         """
@@ -41,6 +52,26 @@ class Cooperante(object):
         """
 
     def fit(self, probability_array)->np.array:
+        """
+        Parameters
+        ----------
+        probability_array : ndarray of shape (n_samples, n_classes)
+            The output from some classifier should be here.
+       
+        Notes
+        -----
+        When you use binary classifucation result as input here, the shape may be (n_samples, ). 
+
+        Returns
+        _______
+        mu_min_array : 1darray of shape (n_samples, )
+            The minimum penalties of the input samples. Higher penalty means the sample has to be
+            checked by human.
+        
+        prediction : 1darray of shape (n_samples, )
+            Class number is predicted for each sample so that the class has the minimum penalty.
+
+        """
         assert probability_array.shape[1] == self.penalty_matrix.shape[1]
 
         #caluculate mu_penalty for each label
@@ -60,30 +91,49 @@ class Cooperante(object):
 
         return mu_min_array, prediction
 
-    def plot_eval(self, label_array, metrics, show_oracle=False, samplong_rate = 5):
+    def plot_eval(self, label_array, metrics=["accuracy_score"], show_oracle=False, samplong_rate = 5):
+        """
+        Plot evaluation for the prediction and its transition when human can check the prediction from samples with higher penalty to samples with lower penalty.
+        When all samples are checked, which means no cost-cut is expected, the evaluation reach 1.
+
+        Parameters
+        __________
+        label_array : 1d array of true class label
+
+        metrics : list, default = ["accuracy_score"]
+            You can choose how to evaluate the prediction; accuracy_score, f1_score, precision_score, recall_score.
+
+        show_oracle : Bool
+            If you know all anser classes for each sample, you can check only false prediction and reach 1 with the minimum human cost. This is called
+            oracle. It is not realistic though, it is useful for comparison.
+
+        samplong_rate : int or float (0,100], default = 5
+            The smaller the sampling rate, the smoother transition line you will get.
+        
+        """
         assert type(metrics) == list
         self._sampling_rate = samplong_rate
-        self.num_sample = int(100 / samplong_rate + 1)
+        self.n_sampling = int(100 / samplong_rate + 1)
         self.df["ans"] = label_array
         self.emerging_label = sorted(list(set(label_array))) #全てのラベルが必ずしも正解ラベルにあるわけではない
         sorted_df = self.df.sort_values("mu_min", ascending=False).reset_index()
-        self.scores = self._calc_3scores(sorted_df, metrics)
+        self.scores = self._calc_scores(sorted_df, metrics)
 
-        
-        num_plot = len(metrics)
-        plt.figure(figsize=(6,5*num_plot))
+        n_plot = len(metrics)
+        x_axis = np.linspace(0,100,self.n_sampling)
+        plt.figure(figsize=(6,5*n_plot))
         for i,x in enumerate(metrics):
-            plt.subplot(num_plot,1,i+1)
+            plt.subplot(n_plot,1,i+1)
             for j,y in enumerate(self.emerging_label): #各クラスを陽性ラベルとしたときのラインをかく
                 if x == "accuracy_score":
-                    plt.plot(np.linspace(0,100,self.num_sample), self.scores[x], label = "label" + str(y)) 
+                    plt.plot(x_axis, self.scores[x], label = "label" + str(y)) 
                     if show_oracle:
-                        plt.plot(np.linspace(0,100,self.num_sample), self._calc_score_oracle(self.df, x, y), label = "oracle_" + "label" + str(y)) 
+                        plt.plot(x_axis, self._calc_score_oracle(self.df, x, y), label = "oracle_" + "label" + str(y)) 
                     self.check_rate_df[f"{x}(label{y})"] = self.check_rates(self.scores[x])
                 else:
-                    plt.plot(np.linspace(0,100,self.num_sample), self.scores[x][:,j], label = "label" + str(y)) 
+                    plt.plot(x_axis, self.scores[x][:,j], label = "label" + str(y)) 
                     if show_oracle:
-                        plt.plot(np.linspace(0,100,self.num_sample), self._calc_score_oracle(self.df, x, y)[:,j], label = "oracle_" + "label" + str(y)) 
+                        plt.plot(x_axis, self._calc_score_oracle(self.df, x, y)[:,j], label = "oracle_" + "label" + str(y)) 
                     self.check_rate_df[f"{x}(label{y})"] = self.check_rates(self.scores[x][:,j])
                 
             plt.legend()
@@ -104,12 +154,13 @@ class Cooperante(object):
             score = precision_score(dataframe["ans"],dataframe["pred"],  average = None, labels=self.emerging_label)
         elif score_type == "recall_score":
             score = recall_score(dataframe["ans"],dataframe["pred"],  average = None, labels=self.emerging_label)
-        return score.tolist() #len(score) = len(self.num_class), type(score) = ndarray [0.1 0.1 0.4]みたいなのが入ってる
+        score =  score.tolist() #len(score) = len(self.emerging_label), type(score) = np.ndarray 
+        return score 
             
-    def _calc_3scores(self, sorted_df, metrics)->dict:
+    def _calc_scores(self, sorted_df, metrics)->dict:
         scores_dict = {}
         for x_score in metrics:
-            scores_dict[x_score] = np.array([self._calc_score(n, sorted_df, score_type=x_score) for n in np.linspace(0,sorted_df.shape[0], self.num_sample)]) #shape は(データ数, num_class)
+            scores_dict[x_score] = np.array([self._calc_score(n, sorted_df, score_type=x_score) for n in np.linspace(0,sorted_df.shape[0], self.n_sampling)]) #shape は(データ数, num_class)
         return scores_dict
 
     def _calc_score_oracle(self, df, score_type = "f1_score", label = 1)->np.array:
@@ -140,15 +191,10 @@ class Cooperante(object):
 
         oracle_idx = wrong_idx.append(else_idx)
         df_oraclesort = df.loc[oracle_idx, :].reset_index()  #間違ってるものを上に持ってきた
-        oracle_score = [self._calc_score(n, df_oraclesort, score_type) for n in np.linspace(0,df_oraclesort.shape[0], self.num_sample)]
+        oracle_score = [self._calc_score(n, df_oraclesort, score_type) for n in np.linspace(0,df_oraclesort.shape[0], self.n_sampling)]
+        oracle_score = np.array(oracle_score)
 
-        return np.array(oracle_score) #[[...],[...],...,[...]] #各行のk番目にラベルkの時のスコアが入っている
-
-    # def _calc_3scores_oracle(self, df, metrics, label):
-    #     scores_dict = {}
-    #     for x_score in metrics:
-    #         scores_dict[x_score] = np.array([self._calc_score_oracle(n, df, score_type=x_score, label = label) for n in tqdm(np.linspace(0,df.shape[0], 21))]) #shape は(データ数, num_class)
-    #     return scores_dict
+        return oracle_score #[[...],[...],...,[...]] #各行のk番目にラベルkの時のスコアが入っている
 
     def check_rate(self, threshold, score_array):
         score_list = list(score_array)
@@ -156,10 +202,10 @@ class Cooperante(object):
         check_rate = score_list.index(score)
         return check_rate * self._sampling_rate
 
-    def check_rates(self, score_list):
+    def check_rates(self, score_array):
         thresholds_list = [0.90, 0.95, 0.99]
         check_rates = []
         for threshold in thresholds_list:
-            check_rates.append(self.check_rate(threshold, score_list))
+            check_rates.append(self.check_rate(threshold, score_array))
         return check_rates
         
