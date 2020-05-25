@@ -65,10 +65,13 @@ class Cooperante(object):
             Class number is predicted for each sample so that the class has the minimum penalty.
 
         """
-        if one_dim:
-            assert min(probability_array) < 0
-            assert max(probability_array) > 1
-            probability_array = np.array([(1 - probability_array, probability_array)])
+
+        # １列で与えられたときの処理
+        if probability_array.shape[1] == 1:
+            assert min(probability_array) >= 0.
+            assert max(probability_array) <= 1.
+            probability_array = probability_array[:,np.newaxis]
+            probability_array = np.concatenate([1 - probability_array, probability_array], axis=1)
             
         assert probability_array.shape[1] == self.penalty_matrix.shape[1]
 
