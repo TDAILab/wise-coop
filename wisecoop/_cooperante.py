@@ -10,7 +10,7 @@ class Cooperante(object):
         """
         Parameters
         ----------
-        penalty_matrix : ndarray of shape (n_classes, n_classes)
+        penalty_matrix : ndarray of shape (n_classes, n_classes), list of list and pandas.DataFrame are also accepted
             Penalty_matrix[i, j] means that when class i is predicted as class j, the penalty will be added. You can avoid some mis-predicting
             by setting the penalty high. Penalty_matrix[i, i] should be 0.
         
@@ -23,17 +23,18 @@ class Cooperante(object):
         
         Example
         _______
-        penalty matrix
-          a b c d
-        a 0 1 1 1
-        b 9 0 1 1
-        c 9 1 0 1
-        d 1 1 1 0
-
+        import numpy as np
+        penalty = np.array([[0,1,1],
+                            [9,0,1],
+                            [1,1,0]])
+        coop = Cooperante(penalty, class_to_check = 2)
 
         """
+
+        penalty_matrix = np.array(penalty_matrix)
         
         assert penalty_matrix.shape[0] == penalty_matrix.shape[1]
+
         self.penalty_matrix = penalty_matrix
         self.n_classes = self.penalty_matrix.shape[1]
         self.class_to_check = class_to_check if type(class_to_check) == list else [class_to_check]
@@ -44,11 +45,6 @@ class Cooperante(object):
         ----------
         probability_array : ndarray of shape (n_samples, n_classes)
             The output from some classifier should be here.
-            example:
-            a b c d
-            0.1 0.2 0.3 0.4
-            0.7 0.1 0.1 0.1
-
        
         Notes
         -----
@@ -63,13 +59,24 @@ class Cooperante(object):
         prediction : 1darray of shape (n_samples, )
             Class number is predicted for each sample so that the class has the minimum penalty.
 
+        Example
+        _______
+        import numpy as np
+        penalty = np.array([[0,1,1],
+                            [9,0,1],
+                            [1,1,0]])
+        coop = Cooperante(penalty, class_to_check = [2])
+        proba = np.array([[0.1,0.1,0.8],
+                        [0.4.,0.4,0.2],
+                        [0.1,0.8,0.1]])
+        mu_min, pred = coop.fit(proba)
+
         """
-        assert min(probability_array) >= 0.
-        assert max(probability_array) <= 1.
 
         # １列で与えられたときの処理
         if len(probability_array.shape) == 1:
-            
+            assert min(probability_array) >= 0.
+            assert max(probability_array) <= 1.     
             probability_array = probability_array[:,np.newaxis]
             probability_array = np.concatenate([1 - probability_array, probability_array], axis=1)
             
@@ -94,7 +101,7 @@ class Cooperante(object):
         __________
         label_array : 1d array of true class label
 
-        metrics : str, default = "accuracy_score"
+        metrics : stror list, default = "accuracy_score"
             You can choose how to evaluate the prediction; accuracy_score, f1_score, precision_score, recall_score.
 
         class_ref : a class or list of classes
@@ -113,35 +120,53 @@ class Cooperante(object):
         self.df = pd.DataFrame(self.prediction, columns=["pred"])  
         self.df["mu_min"] = self.mu_min
         self.df["ans"] = label_array.astype(int)
-        class_ref = class_ref if type(class_ref) == list else [class_ref] #class_ref should be list
-        class_ref = sorted(class_ref) 
+        self.class_ref = class_ref if type(class_ref) == list else [class_ref] #class_ref should be list
+        metrics = metrics if type(metrics) == list else [metrics] #metrics should be list
         sorted_df = self.df.sort_values("mu_min", ascending=False).reset_index()
-        self.scores = self._calc_scores(sorted_df, metrics, label=class_ref)
         self.check_rate_df = pd.DataFrame([90, 95, 99], columns = ["score over X %"])
 
+        fig = plt.figure() # Figureを作成
+        ax = fig.add_subplot(1,1,1) # Axesを作成        
+        self.scores = {}
         x_axis = np.linspace(0,100,self.n_sampling)
-        for j,y in enumerate(class_ref): #各クラスを陽性ラベルとしたときのラインをかく
-            if metrics == "accuracy_score":
-                plt.plot(x_axis, self.scores[metrics], label = "label" + str(y)) 
-                if show_oracle:
-                    plt.plot(x_axis, self._calc_score_oracle(self.df, metrics, y), label = "oracle_" + "label" + str(y)) 
-                self.check_rate_df[f"{metrics}(label{y})"] = self.check_rates(self.scores[metrics])
-            else:
-                plt.plot(x_axis, self.scores[metrics][:,j], label = "label" + str(y)) 
-                if show_oracle:
-                    plt.plot(x_axis, self._calc_score_oracle(self.df, metrics, y), label = "oracle_" + "label" + str(y)) 
-                self.check_rate_df[f"{metrics}(label{y})"] = self.check_rates(self.scores[metrics][:,j])
+        for x in metrics:
+            self.scores[f"{x}"] = np.array([self._calc_score(n, sorted_df, x, self.class_ref) for n in np.linspace(0,sorted_df.shape[0], self.n_sampling)])
+            for j,y in enumerate(self.class_ref): #各クラスを陽性ラベルとしたときのラインをかく
+                if x == "accuracy_score":
+                    line, = ax.plot(x_axis, self.scores[f"{x}"], label = str(x)+"_label" + str(y)) 
+                    if show_oracle:
+                        line_oracle, = ax.plot(x_axis, self._calc_score_oracle(self.df, x, y), label = str(x)+"_oracle_" + "label" + str(y))
+                    #self.check_rate_df[f"{x}(label{y})"] = self._check_threshold(self.scores["x"])
+                else:
+                    line, = ax.plot(x_axis, self.scores[f"{x}"][:,j], label = str(x)+"_label" + str(y)) 
+                    if show_oracle:
+                        line_oracle, = ax.plot(x_axis, self._calc_score_oracle(self.df, x, y), label = str(x)+"_oracle_" + "label" + str(y)) 
+                    #self.check_rate_df[f"{x}(label{y})"] = self._check_threshold(self.scores["x"][:,j])         
                 
-        if len(class_ref) >= 2:
-            plt.legend()
-        plt.xlabel('Human Check Percent')
-        plt.xlim(0,100)
-        plt.grid()
-        plt.show()
+        # if len(class_ref) >= 2:
+        #     ax.legend()
 
-    def _threshhold_check(self, label_array, metrics="accuracy_score", class_ref=1, show_oracle=False, sampling_rate = 5):
+        return fig, ax
 
-        pass
+
+        # x = np.linspace(0,100,self.n_sampling)
+        # for j,y in enumerate(class_ref): #各クラスを陽性ラベルとしたときのラインをかく
+        #     if metrics == "accuracy_score":
+        #         plt.plot(x, scores, label = "label" + str(y)) 
+        #         if show_oracle:
+        #             plt.plot(x, self._calc_score_oracle(self.df, metrics, y), label = "oracle_" + "label" + str(y)) 
+        #         self.check_rate_df[f"{metrics}(label{y})"] = self.check_rates(scores)
+        #     else:
+        #         plt.plot(x, scores[:,j], label = "label" + str(y)) 
+        #         if show_oracle:
+        #             plt.plot(x, self._calc_score_oracle(self.df, metrics, y), label = "oracle_" + "label" + str(y)) 
+        #         self.check_rate_df[f"{metrics}(label{y})"] = self.check_rates(scores[:,j])
+                
+        # if len(class_ref) >= 2:
+        #     plt.legend()
+        # plt.xlabel('Human Check Percent')
+        # plt.xlim(0,100)
+        # plt.grid()
 
     def _calc_score(self, n, df, score_type = "f1_score", label=[1])->list: #dataframeのn番目までhuman checkしてスコアを返す  
         assert type(label) == list
@@ -160,12 +185,7 @@ class Cooperante(object):
         else:
             raise ValueError(score_type)
         return score
-        
-    def _calc_scores(self, sorted_df, metrics, label)->dict:
-        scores_dict = {}
-        scores_dict[metrics] = np.array([self._calc_score(n, sorted_df, metrics, label) for n in np.linspace(0,sorted_df.shape[0], self.n_sampling)])
-        return scores_dict
-
+  
     def _sort_df_oracle(self, df, metrics = "f1_score", label = 1)->pd.DataFrame:
         #正解ラベル、予測ラベルのついたdf
         #sort
@@ -205,16 +225,28 @@ class Cooperante(object):
 
         return oracle_score #[[...],[...],...,[...]] #各行のk番目にラベルkの時のスコアが入っている
 
-    def check_rate(self, threshold, score_array):
+    def _show_check_percent(self, score_array, threshold):
         score_list = list(score_array)
         score = score_array[score_array >= threshold][0] #初めて閾値を超えた時のスコア
-        check_rate = score_list.index(score)
-        return check_rate * self._sampling_rate
+        check_percent = score_list.index(score)
+        return check_percent * self._sampling_rate
 
-    def check_rates(self, score_array):
-        thresholds_list = [0.90, 0.95, 0.99]
-        check_rates = []
-        for threshold in thresholds_list:
-            check_rates.append(self.check_rate(threshold, score_array))
-        return check_rates
+    def check_threshold(self, threshold = [0.95, 0.99])->pd.DataFrame:
+        threshold = threshold if type(threshold) == list else [threshold]
+        check_percent_df = pd.DataFrame(threshold, columns = ["score over X "])
+        for k,v in self.scores.items():
+            if k == "accuracy_score":
+                check_percent = []
+                for t in threshold:
+                    check_percent.append(self._show_check_percent(v, t))
+                check_percent_df[f"{k}"] = check_percent
+
+            else:
+                for j,y in enumerate(self.class_ref):
+                    check_percent = []
+                    for t in threshold:
+                        check_percent.append(self._show_check_percent(v[:,j], t))
+                    check_percent_df[f"{k}_{y}"] = check_percent
+        
+        return check_percent_df
         
