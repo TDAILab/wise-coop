@@ -34,12 +34,11 @@ class Cooperante(object):
         """
         
         assert penalty_matrix.shape[0] == penalty_matrix.shape[1]
-        assert type(class_to_check) == list
         self.penalty_matrix = penalty_matrix
         self.n_classes = self.penalty_matrix.shape[1]
-        self.class_to_check = class_to_check
+        self.class_to_check = class_to_check if type(class_to_check) == list else [class_to_check]
 
-    def fit(self, probability_array, one_dim = False)->np.array:
+    def fit(self, probability_array)->np.array:
         """
         Parameters
         ----------
@@ -65,11 +64,12 @@ class Cooperante(object):
             Class number is predicted for each sample so that the class has the minimum penalty.
 
         """
+        assert min(probability_array) >= 0.
+        assert max(probability_array) <= 1.
 
         # １列で与えられたときの処理
-        if probability_array.shape[1] == 1:
-            assert min(probability_array) >= 0.
-            assert max(probability_array) <= 1.
+        if len(probability_array.shape) == 1:
+            
             probability_array = probability_array[:,np.newaxis]
             probability_array = np.concatenate([1 - probability_array, probability_array], axis=1)
             
@@ -113,7 +113,7 @@ class Cooperante(object):
         self.df = pd.DataFrame(self.prediction, columns=["pred"])  
         self.df["mu_min"] = self.mu_min
         self.df["ans"] = label_array.astype(int)
-        class_ref = class_ref if type(class_ref) == list else [class_ref]
+        class_ref = class_ref if type(class_ref) == list else [class_ref] #class_ref should be list
         class_ref = sorted(class_ref) 
         sorted_df = self.df.sort_values("mu_min", ascending=False).reset_index()
         self.scores = self._calc_scores(sorted_df, metrics, label=class_ref)
@@ -129,19 +129,22 @@ class Cooperante(object):
             else:
                 plt.plot(x_axis, self.scores[metrics][:,j], label = "label" + str(y)) 
                 if show_oracle:
-                    plt.plot(x_axis, self._calc_score_oracle(self.df, metrics, y)[:,j], label = "oracle_" + "label" + str(y)) 
+                    plt.plot(x_axis, self._calc_score_oracle(self.df, metrics, y), label = "oracle_" + "label" + str(y)) 
                 self.check_rate_df[f"{metrics}(label{y})"] = self.check_rates(self.scores[metrics][:,j])
                 
-        plt.legend()
+        if len(class_ref) >= 2:
+            plt.legend()
         plt.xlabel('Human Check Percent')
         plt.xlim(0,100)
         plt.grid()
+        plt.show()
 
     def _threshhold_check(self, label_array, metrics="accuracy_score", class_ref=1, show_oracle=False, sampling_rate = 5):
 
         pass
 
-    def _calc_score(self, n, df, score_type = "f1_score", label=1)->list: #dataframeのn番目までhuman checkしてスコアを返す  
+    def _calc_score(self, n, df, score_type = "f1_score", label=[1])->list: #dataframeのn番目までhuman checkしてスコアを返す  
+        assert type(label) == list
         n = int(n)
         dataframe = df.copy()
         
@@ -166,6 +169,7 @@ class Cooperante(object):
     def _sort_df_oracle(self, df, metrics = "f1_score", label = 1)->pd.DataFrame:
         #正解ラベル、予測ラベルのついたdf
         #sort
+        assert type(label) == int
         pred_negative = df[df["pred"] == label]
         ans_negative = df[df["ans"] == label]
 
@@ -194,8 +198,9 @@ class Cooperante(object):
         return sorted_df
 
     def _calc_score_oracle(self, df, metrics = "f1_score", label = 1)->np.array:
+        assert type(label) == int
         sorted_df = self._sort_df_oracle(df, metrics, label)
-        oracle_score = [self._calc_score(n, sorted_df, metrics) for n in np.linspace(0,sorted_df.shape[0], self.n_sampling)]
+        oracle_score = [self._calc_score(n, sorted_df, metrics, [label]) for n in np.linspace(0,sorted_df.shape[0], self.n_sampling)]
         oracle_score = np.array(oracle_score)
 
         return oracle_score #[[...],[...],...,[...]] #各行のk番目にラベルkの時のスコアが入っている
