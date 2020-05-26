@@ -10,7 +10,7 @@ class Cooperante(object):
         """
         Parameters
         ----------
-        penalty_matrix : ndarray of shape (n_classes, n_classes), list of list and pandas.DataFrame are also accepted
+        penalty_matrix : array_like of shape (n_classes, n_classes)
             Penalty_matrix[i, j] means that when class i is predicted as class j, the penalty will be added. You can avoid some mis-predicting
             by setting the penalty high. Penalty_matrix[i, i] should be 0.
         
@@ -101,7 +101,7 @@ class Cooperante(object):
         __________
         label_array : 1d array of true class label
 
-        metrics : stror list, default = "accuracy_score"
+        metrics : str or list, default = "accuracy_score"
             You can choose how to evaluate the prediction; accuracy_score, f1_score, precision_score, recall_score.
 
         class_ref : a class or list of classes
@@ -123,7 +123,7 @@ class Cooperante(object):
         self.class_ref = class_ref if type(class_ref) == list else [class_ref] #class_ref should be list
         metrics = metrics if type(metrics) == list else [metrics] #metrics should be list
         sorted_df = self.df.sort_values("mu_min", ascending=False).reset_index()
-        self.check_rate_df = pd.DataFrame([90, 95, 99], columns = ["score over X %"])
+        #self.check_rate_df = pd.DataFrame([90, 95, 99], columns = ["score over X %"])
 
         fig = plt.figure() # Figureを作成
         ax = fig.add_subplot(1,1,1) # Axesを作成        
