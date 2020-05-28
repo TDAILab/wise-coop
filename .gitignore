@@ -131,3 +131,6 @@ dmypy.json
 # PyPI
 dist/
 build/
+
+#numpy data
+.npy
