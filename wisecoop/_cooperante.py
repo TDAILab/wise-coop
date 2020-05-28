@@ -49,6 +49,7 @@ class Cooperante(object):
         Notes
         -----
         When you use binary classifucation result as input here, the shape may be (n_samples, ). 
+        You can set the 1d-array because the other column of class 0 is automatically created inside.
 
         Returns
         _______
@@ -65,9 +66,9 @@ class Cooperante(object):
         penalty = np.array([[0,1,1],
                             [9,0,1],
                             [1,1,0]])
-        coop = Cooperante(penalty, class_to_check = [2])
+        coop = Cooperante(penalty, class_to_check = 2)
         proba = np.array([[0.1,0.1,0.8],
-                        [0.4.,0.4,0.2],
+                        [0.4,0.4,0.2],
                         [0.1,0.8,0.1]])
         mu_min, pred = coop.fit(proba)
 
@@ -232,6 +233,22 @@ class Cooperante(object):
         return check_percent * self._sampling_rate
 
     def check_threshold(self, threshold = [0.95, 0.99])->pd.DataFrame:
+        '''
+        Parameters
+        ----------
+        threshold : float or list
+            You can set this number according to your KPI (e.g. recall >= 0.99)
+       
+        Notes
+        -----
+        You can use this method only after using plot_eval method, because calculated score lists exist inside the method.
+
+        Returns
+        _______
+        check_percent_df : pd.DataFrame of shape (number of threshold, number of scores for each class)
+            You can check minimum required percentage of human check for each KPI.
+
+        '''
         threshold = threshold if type(threshold) == list else [threshold]
         check_percent_df = pd.DataFrame(threshold, columns = ["score over X "])
         for k,v in self.scores.items():
