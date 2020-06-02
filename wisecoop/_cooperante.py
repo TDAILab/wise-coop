@@ -49,6 +49,7 @@ class Cooperante(object):
         Notes
         -----
         When you use binary classifucation result as input here, the shape may be (n_samples, ). 
+        You can set the 1d-array because the other column of class 0 is automatically created inside.
 
         Returns
         _______
@@ -65,9 +66,9 @@ class Cooperante(object):
         penalty = np.array([[0,1,1],
                             [9,0,1],
                             [1,1,0]])
-        coop = Cooperante(penalty, class_to_check = [2])
+        coop = Cooperante(penalty, class_to_check = 2)
         proba = np.array([[0.1,0.1,0.8],
-                        [0.4.,0.4,0.2],
+                        [0.4,0.4,0.2],
                         [0.1,0.8,0.1]])
         mu_min, pred = coop.fit(proba)
 
@@ -92,7 +93,7 @@ class Cooperante(object):
 
         return mu_min, prediction
 
-    def plot_eval(self, label_array, metrics="accuracy_score", class_ref=1, show_oracle=False, sampling_rate = 5):
+    def plot_eval(self, label_array, metrics="accuracy_score", class_ref=1, show_oracle=False, sampling_rate = 0.01):
         """
         Plot evaluation for the prediction and its transition when human can check the prediction from samples with higher penalty to samples with lower penalty.
         When all samples are checked, which means no cost-cut is expected, the evaluation reach 1.
@@ -116,7 +117,7 @@ class Cooperante(object):
         
         """
         self._sampling_rate = sampling_rate
-        self.n_sampling = int(100 / sampling_rate + 1)
+        self.n_sampling = int(1 / sampling_rate + 1)
         self.df = pd.DataFrame(self.prediction, columns=["pred"])  
         self.df["mu_min"] = self.mu_min
         self.df["ans"] = label_array.astype(int)
@@ -225,28 +226,49 @@ class Cooperante(object):
 
         return oracle_score #[[...],[...],...,[...]] #各行のk番目にラベルkの時のスコアが入っている
 
-    def _show_check_percent(self, score_array, threshold):
+    def _show_check_rate(self, score_array, threshold):
         score_list = list(score_array)
         score = score_array[score_array >= threshold][0] #初めて閾値を超えた時のスコア
-        check_percent = score_list.index(score)
-        return check_percent * self._sampling_rate
+        check_rate = score_list.index(score)
+        check_rate = check_rate * self._sampling_rate * 100
+        return check_rate
 
-    def check_threshold(self, threshold = [0.95, 0.99])->pd.DataFrame:
-        threshold = threshold if type(threshold) == list else [threshold]
-        check_percent_df = pd.DataFrame(threshold, columns = ["score over X "])
-        for k,v in self.scores.items():
-            if k == "accuracy_score":
-                check_percent = []
-                for t in threshold:
-                    check_percent.append(self._show_check_percent(v, t))
-                check_percent_df[f"{k}"] = check_percent
+    def score_to_check_rate(self, class_ref, metric, threshold = 0.99)->int or float:
+        '''
+        Parameters
+        ----------
+        threshold : float or list
+            You can set this number according to your KPI (e.g. recall >= 0.99)
+       
+        Notes
+        -----
+        You can use this method only after using plot_eval method, because calculated score lists exist inside the method.
 
-            else:
-                for j,y in enumerate(self.class_ref):
-                    check_percent = []
-                    for t in threshold:
-                        check_percent.append(self._show_check_percent(v[:,j], t))
-                    check_percent_df[f"{k}_{y}"] = check_percent
+        Returns
+        _______
+        check_rate : int or float
+            You can check minimum required percentage of human check for each KPI.(e.g. recall >= 0.99)
+
+        '''
+        # threshold = threshold if type(threshold) == list else [threshold]
+        if metric == "accuracy_score":
+            check_rate = self._show_check_rate(self.scores[metric], threshold)
+        else:
+            index = self.class_ref.index(class_ref)
+            check_rate = self._show_check_rate(self.scores[metric][:, index], threshold)
         
-        return check_percent_df
+        return check_rate
+
+    def _show_score(self, score_array, threshold):
+        index = int(threshold * (self.n_sampling - 1))
+        score = score_array[index]
+        return score 
         
+    def check_rate_to_score(self, class_ref, metric, threshold = 0.5)->int or float:
+        if metric == "accuracy_score":
+            score = self._show_score(self.scores[metric], threshold)
+        else:
+            index = self.class_ref.index(class_ref)
+            score = self._show_score(self.scores[metric][:, index], threshold)
+        
+        return score
