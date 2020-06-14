@@ -14,7 +14,7 @@ Wise-coop receives AI predictions and penalty matrix as an input, then outputs n
 predictions and priority of human cooperation for each sample.
 
 ## Installation
-Wise-coop is available at [the Python Package Index](http://pypi.org/project/wisecoop/) 
+Wise-coop is available at the Python Package Index. 
 ```bash
 # PyPI
 $ pip install wisecoop
